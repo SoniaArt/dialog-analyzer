@@ -1,6 +1,31 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local ML models and vector database
 topic_model/
 emotion_model/
 chroma_data/
-__pycache__/
-*.pyc
+
+# Training artifacts and generated datasets
+topic_model_results/
+emotion_model_results/
 training_data*.csv
+
+# Local environment files
+.env
+.env.*
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
