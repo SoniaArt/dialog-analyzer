@@ -22,7 +22,6 @@ class DialogDatabase:
     
     def find_similar(self, query_text, top_k=5):
         query_lower = query_text.lower()
-        query_embedding = self.model.encode([query_text]).tolist()
         
         # Сначала ищем точное совпадение по ключевым словам
         keyword_matches = []
@@ -34,6 +33,7 @@ class DialogDatabase:
             return keyword_matches[:top_k]
         
         # Если нет точных совпадений, ищем эмбеддингами
+        query_embedding = self.model.encode([query_text]).tolist()
         results = self.collection.query(query_embeddings=query_embedding, n_results=top_k)
         similar = []
         if results['documents'][0]:
