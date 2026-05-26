@@ -227,69 +227,126 @@ if 'df' in st.session_state:
         display = df[['dialog', 'тема', 'эмоция']].copy()
         display.index = range(1, len(display) + 1)
         st.dataframe(display, use_container_width=True, height=500)
-    
+
     with tab2:
         problems = df[df['проблемный'] == True]
+
         if len(problems) > 0:
             for _, row in problems.iterrows():
+                if row['эмоция'] == 'нейтральный':
+                    bg_color = '#fff9c4'
+                    border_color = '#fbc02d'
+                elif row['эмоция'] == 'негативный':
+                    bg_color = '#ffebee'
+                    border_color = '#e57373'
+
                 st.markdown(f"""
-                <div class="problem-card">
-                    <strong>{row['тема']}</strong> | {row['эмоция']}<br>
+                <div class="problem-card" style="
+                    background: {bg_color};
+                    border-left: 4px solid {border_color};
+                    padding: 1rem;
+                    border-radius: 8px;
+                    margin: 0.5rem 0;
+                ">
+                    <strong>{row['тема']}</strong> | 
+                    <span style="color: {border_color}; font-weight: 600;">
+                        {row['эмоция']}
+                    </span><br>
                     {row['dialog'][:200]}...
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.info("Нет проблемных")
-    
-    with tab3:
+            st.info("Нет проблемных обращений")
 
+    with tab3:
         topic_counts = df['тема'].value_counts()
         emotion_counts = df['эмоция'].value_counts()
 
-        col1, col2 = st.columns(2)
+        # Выбор типа визуализации
+        chart_type = st.selectbox(
+            "Тип диаграммы",
+            ["Гистограмма", "Круговая", "Лепестковая"],
+            key="chart_type_selector"
+        )
 
+        col1, col2 = st.columns(2)
         with col1:
             st.markdown("### Распределение по темам")
-            st.bar_chart(topic_counts)
 
-            st.markdown("#### Детализация по темам")
-            total_topics = topic_counts.sum()
+            if chart_type == "Гистограмма":
+                st.bar_chart(topic_counts)
+            elif chart_type == "Круговая":
+                import plotly.express as px
 
-            for topic, count in topic_counts.items():
-                percent = (count / total_topics) * 100
-                st.markdown(f"""
-                    <div class="stats-box">
-                        <div class="stats-row">
-                            <div class="stats-name">{topic}</div>
-                            <div class="stats-right">
-                                <div class="stats-count">{count}</div>
-                                <div class="stats-percent">{percent:.1f}%</div>
-                            </div>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+                fig = px.pie(
+                    values=topic_counts.values,
+                    names=topic_counts.index,
+                    hole=0.4
+                )
+                fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
+            elif chart_type == "Лепестковая":
+                import plotly.graph_objects as go
+
+                fig = go.Figure()
+                values = topic_counts.values.tolist() + [topic_counts.values[0]]
+                labels = topic_counts.index.tolist() + [topic_counts.index[0]]
+                fig.add_trace(go.Scatterpolar(
+                    r=values,
+                    theta=labels,
+                    fill='toself',
+                    name='Количество',
+                    line_color='#1f77b4',
+                    fillcolor='rgba(31, 119, 180, 0.3)'
+                ))
+                fig.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, max(topic_counts.values) * 1.1])
+                    ),
+                    showlegend=False,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
         with col2:
             st.markdown("### Распределение по эмоциям")
-            st.bar_chart(emotion_counts)
 
-            st.markdown("#### Детализация по эмоциям")
-            total_emotions = emotion_counts.sum()
+            if chart_type == "Гистограмма":
+                st.bar_chart(emotion_counts)
+            elif chart_type == "Круговая":
+                import plotly.express as px
 
-            for emo, count in emotion_counts.items():
-                percent = (count / total_emotions) * 100
-                st.markdown(f"""
-                    <div class="stats-box">
-                        <div class="stats-row">
-                            <div class="stats-name">{emo}</div>
-                            <div class="stats-right">
-                                <div class="stats-count">{count}</div>
-                                <div class="stats-percent">{percent:.1f}%</div>
-                            </div>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-    
+                fig = px.pie(
+                    values=emotion_counts.values,
+                    names=emotion_counts.index,
+                    hole=0.4
+                )
+                fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
+            elif chart_type == "Лепестковая":
+                import plotly.graph_objects as go
+
+                fig = go.Figure()
+                values = emotion_counts.values.tolist() + [emotion_counts.values[0]]
+                labels = emotion_counts.index.tolist() + [emotion_counts.index[0]]
+                fig.add_trace(go.Scatterpolar(
+                    r=values,
+                    theta=labels,
+                    fill='toself',
+                    name='Количество',
+                    line_color='#2ca02c',
+                    fillcolor='rgba(44, 160, 44, 0.3)'
+                ))
+                fig.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, max(emotion_counts.values) * 1.1])
+                    ),
+                    showlegend=False,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
     with tab4:
         st.subheader("Поиск похожих обращений")
 
