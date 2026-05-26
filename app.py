@@ -81,6 +81,11 @@ st.markdown("""
 
 st.markdown('<div class="main-title">Анализ диалогов</div>', unsafe_allow_html=True)
 
+if 'loaded_count' in st.session_state:
+    st.success(
+        f"В ChromaDB сохранено {st.session_state.loaded_count} диалогов."
+    )
+
 @st.cache_resource
 def init():
     return DialogDatabase(), DialogAnalyzer()
@@ -99,13 +104,13 @@ with st.sidebar:
         
         if st.button("Анализировать", type="primary", use_container_width=True):
             with st.spinner("Анализ..."):
-                db.load_dialogs(io.StringIO(content))
+                loaded_count = db.load_dialogs(io.StringIO(content))
                 results = [analyzer.analyze_dialog(d) for d in df_preview['dialog']]
                 df_preview['тема'] = [r['topic'] for r in results]
                 df_preview['эмоция'] = [r['emotion'] for r in results]
                 df_preview['проблемный'] = [r['is_problem'] for r in results]
                 st.session_state.df = df_preview
-                st.success("Готово!")
+                st.session_state.loaded_count = loaded_count
                 st.rerun()
 
 if 'df' in st.session_state:

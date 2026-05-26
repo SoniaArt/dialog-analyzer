@@ -38,3 +38,5 @@ Thumbs.db
 
 # Logs
 *.log
+
+sentence_transformers_cache/
