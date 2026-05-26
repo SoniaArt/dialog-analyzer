@@ -2,9 +2,15 @@ import pandas as pd
 import re
 import uuid
 import chromadb
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+
+
+BASE_DIR = Path(__file__).resolve().parent
+CHROMA_PATH = str(BASE_DIR / "chroma_data")
+COLLECTION_NAME = "dialogs"
+EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDING_CACHE_PATH = str(BASE_DIR / "sentence_transformers_cache")
 
 
 class DialogDatabase:
@@ -15,12 +21,105 @@ class DialogDatabase:
 
         self.full_texts = []
 
-        self.vectorizer = TfidfVectorizer(
-            lowercase=True,
-            ngram_range=(1, 2)
+        self.embedding_model = None
+
+        self.client = chromadb.PersistentClient(
+            path=CHROMA_PATH
         )
 
-        self.matrix = None
+        self.collection = self.client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"}
+        )
+
+        self._restore_cached_dialogs()
+
+    # -----------------------------
+    # Модель эмбеддингов
+    # -----------------------------
+
+    def _get_embedding_model(self):
+
+        if self.embedding_model is None:
+            self.embedding_model = SentenceTransformer(
+                EMBEDDING_MODEL,
+                cache_folder=EMBEDDING_CACHE_PATH,
+                local_files_only=self._is_embedding_model_cached()
+            )
+
+        return self.embedding_model
+
+    def _is_embedding_model_cached(self):
+
+        repo_cache_name = f"models--{EMBEDDING_MODEL.replace('/', '--')}"
+        snapshots_path = (
+            Path(EMBEDDING_CACHE_PATH)
+            / repo_cache_name
+            / "snapshots"
+        )
+
+        if not snapshots_path.exists():
+            return False
+
+        required_files = {
+            "config.json",
+            "model.safetensors",
+            "modules.json",
+            "tokenizer.json"
+        }
+
+        for snapshot_path in snapshots_path.iterdir():
+            if not snapshot_path.is_dir():
+                continue
+
+            if all(
+                (snapshot_path / file_name).exists()
+                for file_name in required_files
+            ):
+                return True
+
+        return False
+
+    # -----------------------------
+    # Восстановление данных из ChromaDB
+    # -----------------------------
+
+    def _restore_cached_dialogs(self):
+
+        if self.collection.count() == 0:
+            return
+
+        stored = self.collection.get(
+            include=["documents", "metadatas"]
+        )
+
+        self.texts = stored.get("documents", [])
+
+        self.full_texts = [
+            (metadata or {}).get("full_text", document)
+            for document, metadata in zip(
+                self.texts,
+                stored.get("metadatas", [])
+            )
+        ]
+
+    # -----------------------------
+    # Очистка коллекции перед новой загрузкой
+    # -----------------------------
+
+    def _reset_collection(self):
+
+        try:
+            self.client.delete_collection(
+                name=COLLECTION_NAME
+            )
+        except Exception:
+            pass
+
+        self.collection = self.client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"}
+        )
 
     # -----------------------------
     # Извлекаем только текст клиента
@@ -63,9 +162,45 @@ class DialogDatabase:
             .tolist()
         )
 
-        self.matrix = self.vectorizer.fit_transform(self.texts)
+        self._reset_collection()
 
-        print(f"Уникальных диалогов загружено: {len(self.texts)}")
+        if self.texts:
+            embeddings = (
+                self._get_embedding_model()
+                .encode(
+                    self.texts,
+                    normalize_embeddings=True
+                )
+                .tolist()
+            )
+
+            ids = [
+                str(uuid.uuid5(uuid.NAMESPACE_URL, full_text))
+                for full_text in self.full_texts
+            ]
+
+            metadatas = [
+                {
+                    "full_text": full_text,
+                    "client_text": client_text
+                }
+                for full_text, client_text in zip(
+                    self.full_texts,
+                    self.texts
+                )
+            ]
+
+            self.collection.add(
+                ids=ids,
+                documents=self.texts,
+                metadatas=metadatas,
+                embeddings=embeddings
+            )
+
+        print(
+            "Уникальных диалогов загружено в ChromaDB: "
+            f"{len(self.texts)}"
+        )
 
         return len(self.texts)
 
@@ -75,29 +210,38 @@ class DialogDatabase:
 
     def find_similar(self, query_text, top_k=5):
 
-        if not self.texts or self.matrix is None:
+        if not self.texts or self.collection.count() == 0:
             return []
 
         query_text = str(query_text).lower().strip()
 
-        query_vector = self.vectorizer.transform(
-            [query_text]
+        if not query_text:
+            return []
+
+        query_embedding = (
+            self._get_embedding_model()
+            .encode(
+                [query_text],
+                normalize_embeddings=True
+            )[0]
+            .tolist()
         )
 
-        similarities = cosine_similarity(
-            query_vector,
-            self.matrix
-        )[0]
-
-        indexes = similarities.argsort()[::-1]
+        search_results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(top_k * 2, self.collection.count()),
+            include=["metadatas", "distances"]
+        )
 
         results = []
         used_texts = set()
 
-        for idx in indexes:
-            search_text = self.texts[idx].strip().lower()
-            full_text = self.full_texts[idx].strip()
-            score = round(similarities[idx] * 100, 2)
+        metadatas = search_results.get("metadatas", [[]])[0]
+        distances = search_results.get("distances", [[]])[0]
+
+        for metadata, distance in zip(metadatas, distances):
+            full_text = metadata.get("full_text", "").strip()
+            score = round(max(0, 1 - distance) * 100, 2)
 
             if score <= 0:
                 continue
