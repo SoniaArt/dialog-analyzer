@@ -109,7 +109,7 @@ python -m venv .venv
 Установка библиотек:
 
 ```bash
-pip install streamlit pandas sentence-transformers chromadb transformers torch scikit-learn accelerate openpyxl
+pip install streamlit pandas sentence-transformers chromadb transformers torch scikit-learn accelerate openpyxl plotly
 ```
 
 ## Запуск приложения
