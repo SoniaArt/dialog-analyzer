@@ -81,37 +81,142 @@ st.markdown("""
 
 st.markdown('<div class="main-title">Анализ диалогов</div>', unsafe_allow_html=True)
 
-if 'loaded_count' in st.session_state:
-    st.success(
-        f"В ChromaDB сохранено {st.session_state.loaded_count} диалогов."
-    )
-
 @st.cache_resource
 def init():
     return DialogDatabase(), DialogAnalyzer()
 
 db, analyzer = init()
 
+import io
+import pandas as pd
+import streamlit as st
+
+
+def validate_csv_file(file) -> tuple[bool, str, pd.DataFrame | None]:
+    #проверка размера файла
+    if file.size == 0:
+        return False, "Файл пустой", None
+
+    if file.size > 50 * 1024 * 1024:  # 50 MB лимит
+        return False, "Файл слишком большой (>50 MB)", None
+
+    #попытка чтения с разными кодировками
+    df = None
+    encodings = ['utf-8', 'cp1251', 'utf-8-sig', 'latin-1']
+
+    for enc in encodings:
+        try:
+            content = file.getvalue().decode(enc)
+            df = pd.read_csv(io.StringIO(content))
+            break
+        except UnicodeDecodeError:
+            continue
+        except pd.errors.EmptyDataError:
+            return False, "Файл не содержит данных", None
+        except pd.errors.ParserError as e:
+            return False, f"Ошибка парсинга CSV: {str(e)}", None
+    else:
+        return False, "Не удалось определить кодировку файла", None
+
+    #проверка обязательной колонки
+    if 'dialog' not in df.columns:
+        available = ', '.join(df.columns.tolist())
+        return False, f"Отсутствует колонка 'dialog'. Найдено: [{available}]", None
+
+    #проверка на пустые диалоги
+    if df['dialog'].dropna().empty:
+        return False, "Колонка 'dialog' не содержит данных", None
+
+    #полностью убираем пустые строки
+    df = df.dropna(subset=['dialog']).reset_index(drop=True)
+
+    if df.empty:
+        return False, "После очистки файл не содержит валидных диалогов", None
+
+    return True, f"OK: {len(df)} диалогов", df
+
+
 with st.sidebar:
-    st.header("Загрузка")
-    uploaded = st.file_uploader("CSV с колонкой 'dialog'", type=['csv'])
-    
-    if uploaded:
-        content = uploaded.getvalue().decode('utf-8')
-        df_preview = pd.read_csv(io.StringIO(content))
-        st.success(f"{len(df_preview)} диалогов")
-        st.dataframe(df_preview, use_container_width=True, height=250)
-        
-        if st.button("Анализировать", type="primary", use_container_width=True):
-            with st.spinner("Анализ..."):
-                loaded_count = db.load_dialogs(io.StringIO(content))
-                results = [analyzer.analyze_dialog(d) for d in df_preview['dialog']]
-                df_preview['тема'] = [r['topic'] for r in results]
-                df_preview['эмоция'] = [r['emotion'] for r in results]
-                df_preview['проблемный'] = [r['is_problem'] for r in results]
-                st.session_state.df = df_preview
-                st.session_state.loaded_count = loaded_count
-                st.rerun()
+    st.header("Загрузка файлов")
+
+    uploaded_files = st.file_uploader(
+        "CSV с колонкой 'dialog'",
+        type=['csv'],
+        accept_multiple_files=True,
+        help="Можно выбрать несколько файлов. Каждый файл должен содержать колонку 'dialog'."
+    )
+
+    if uploaded_files:
+        all_dfs = []
+        errors = []
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        for idx, file in enumerate(uploaded_files):
+            status_text.text(f"Обработка: {file.name}...")
+
+            is_valid, message, df = validate_csv_file(file)
+
+            if is_valid:
+                all_dfs.append(df)
+                st.success(f"{file.name}: {message}")
+            else:
+                errors.append(f"{file.name}: {message}")
+                st.error(f"{file.name}: {message}")
+
+            # Обновляем прогресс
+            progress_bar.progress((idx + 1) / len(uploaded_files))
+
+        progress_bar.empty()
+        status_text.empty()
+
+        #вывод сводки по ошибкам
+        if errors:
+            with st.expander(f"Ошибки в {len(errors)} файлах", expanded=False):
+                for err in errors:
+                    st.caption(err)
+
+        #продолжаем, если есть 1 или более корректных файлов
+        if all_dfs:
+            # Объединяем все валидные DataFrame
+            df_combined = pd.concat(all_dfs, ignore_index=True)
+
+            st.divider()
+            st.info(f"Загружено: **{len(df_combined)} диалогов** из {len(all_dfs)} файлов")
+
+            #показ данных
+            with st.expander("Просмотр данных", expanded=False):
+                st.dataframe(df_combined.head(100), use_container_width=True)
+
+            #кнопка анализа
+            if st.button("Анализировать", type="primary", use_container_width=True):
+                with st.spinner("Идет анализ диалогов..."):
+                    try:
+                        #конвертируем в CSV для load_dialogs
+                        csv_buffer = io.StringIO(df_combined.to_csv(index=False))
+                        loaded_count = db.load_dialogs(csv_buffer)
+
+                        #анализ через analyzer
+                        results = [analyzer.analyze_dialog(d) for d in df_combined['dialog']]
+
+                        #добавляем результаты в DataFrame
+                        df_combined['тема'] = [r['topic'] for r in results]
+                        df_combined['эмоция'] = [r['emotion'] for r in results]
+                        df_combined['проблемный'] = [r['is_problem'] for r in results]
+
+                        #сохраняем в session_state
+                        st.session_state.df = df_combined
+                        st.session_state.loaded_count = loaded_count
+
+                        st.success(f"Анализ завершён! Обработано: {len(df_combined)} диалогов")
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Критическая ошибка при анализе: {str(e)}")
+                        st.exception(e)  # Покажет стектрейс в режиме разработки
+        else:
+            st.warning("Нет валидных файлов для анализа. Исправьте ошибки выше и попробуйте снова.")
 
 if 'df' in st.session_state:
     df = st.session_state.df
@@ -121,10 +226,8 @@ if 'df' in st.session_state:
     with c2: st.metric("Проблемных", df['проблемный'].sum())
     with c3: st.metric("Негативных", (df['эмоция'] == 'негативный').sum())
     with c4: st.metric("Позитивных", (df['эмоция'] == 'позитивный').sum())
-    
-    # -----------------------------
-# ЭКСПОРТ РЕЗУЛЬТАТОВ
-# -----------------------------
+
+    #экспорт результатов
 
     export_df = df.copy()
 
@@ -140,14 +243,14 @@ if 'df' in st.session_state:
         "проблемный": "Проблемный"
     })
 
-    # CSV
+    #CSV
     csv_result = export_df.to_csv(
         index=False,
         sep=";",
         encoding="utf-8-sig"
     )
 
-    # Excel
+    #Excel
     excel_buffer = io.BytesIO()
 
     with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
@@ -199,7 +302,7 @@ if 'df' in st.session_state:
         for row in range(2, worksheet.max_row + 1):
             worksheet.row_dimensions[row].height = 28
 
-    # Две кнопки рядом
+    #две кнопки рядом
     download_col1, download_col2 = st.columns(2)
 
     with download_col1:
@@ -262,7 +365,7 @@ if 'df' in st.session_state:
         topic_counts = df['тема'].value_counts()
         emotion_counts = df['эмоция'].value_counts()
 
-        # Выбор типа визуализации
+        #выбор типа визуализации
         chart_type = st.selectbox(
             "Тип диаграммы",
             ["Гистограмма", "Круговая", "Лепестковая"],

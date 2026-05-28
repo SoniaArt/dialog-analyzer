@@ -11,9 +11,7 @@ class DialogAnalyzer:
         self.use_topic_model = False
         self.use_emotion_model = False
 
-        # ---------------------------
-        # TOPIC MODEL
-        # ---------------------------
+        # модель тем
 
         if os.path.exists("./topic_model"):
 
@@ -46,9 +44,7 @@ class DialogAnalyzer:
 
             print("Модель тем загружена")
 
-        # ---------------------------
-        # EMOTION MODEL
-        # ---------------------------
+        # модель эмоций
 
         if os.path.exists("./emotion_model"):
 
@@ -81,13 +77,9 @@ class DialogAnalyzer:
 
             print("Модель эмоций загружена")
 
-    # --------------------------------------------------
-
     def preprocess_text(self, dialog):
 
         return dialog.strip()[:512]
-
-    # --------------------------------------------------
 
     def classify_topic(self, dialog):
 
@@ -119,8 +111,6 @@ class DialogAnalyzer:
 
         return topic
 
-    # --------------------------------------------------
-
     def analyze_sentiment(self, dialog):
 
         text = self.preprocess_text(dialog)
@@ -149,9 +139,7 @@ class DialogAnalyzer:
             "нейтральный"
         )
 
-        # ----------------------------------------
-        # POST-PROCESSING RULES
-        # ----------------------------------------
+        #правила постобработки
 
         lower = text.lower()
 
@@ -186,15 +174,15 @@ class DialogAnalyzer:
             "списали"
         ]
 
-        # сильный негатив
+        #негатив
         if any(w in lower for w in strong_negative):
             return "негативный"
 
-        # сильный позитив
+        #позитив
         if any(w in lower for w in strong_positive):
             return "позитивный"
 
-        # проблема + спасибо = нейтрально
+        #проблема + спасибо = нейтрально
         if any(w in lower for w in problem_words):
 
             if "спасибо" in lower:
@@ -207,8 +195,6 @@ class DialogAnalyzer:
                 return "нейтральный"
 
         return emotion
-
-    # --------------------------------------------------
 
     def is_problem_dialog(self, dialog):
 
@@ -233,8 +219,6 @@ class DialogAnalyzer:
             word in lower
             for word in problem_words
         )
-
-    # --------------------------------------------------
 
     def analyze_dialog(self, dialog):
 

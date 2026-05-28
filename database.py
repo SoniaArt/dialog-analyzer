@@ -34,9 +34,7 @@ class DialogDatabase:
 
         self._restore_cached_dialogs()
 
-    # -----------------------------
-    # Модель эмбеддингов
-    # -----------------------------
+    # модель эмбиддингов
 
     def _get_embedding_model(self):
 
@@ -80,9 +78,7 @@ class DialogDatabase:
 
         return False
 
-    # -----------------------------
-    # Восстановление данных из ChromaDB
-    # -----------------------------
+    # восстановление данных из бд
 
     def _restore_cached_dialogs(self):
 
@@ -103,10 +99,7 @@ class DialogDatabase:
             )
         ]
 
-    # -----------------------------
-    # Очистка коллекции перед новой загрузкой
-    # -----------------------------
-
+    # очистка коллекции перед новой загрузкой
     def _reset_collection(self):
 
         try:
@@ -121,10 +114,7 @@ class DialogDatabase:
             metadata={"hnsw:space": "cosine"}
         )
 
-    # -----------------------------
-    # Извлекаем только текст клиента
-    # -----------------------------
-
+    # извлечение клиентского текста
     def extract_client_text(self, dialog):
 
         matches = re.findall(
@@ -138,10 +128,7 @@ class DialogDatabase:
 
         return str(dialog).strip().lower()
 
-    # -----------------------------
-    # Загружаем диалоги
-    # -----------------------------
-
+    # загрузка диалогов
     def load_dialogs(self, csv_file):
 
         df = pd.read_csv(csv_file)
@@ -149,13 +136,13 @@ class DialogDatabase:
         if "dialog" not in df.columns:
             raise Exception("CSV должен содержать колонку 'dialog'")
 
-        # Убираем полные дубликаты диалогов
+        #убираем полные дубликаты диалогов
         df = df.drop_duplicates(subset=["dialog"])
 
-        # Полный текст для вывода
+        #полный текст для вывода
         self.full_texts = df["dialog"].astype(str).tolist()
 
-        # Клиентский текст для поиска
+        #клиентский текст для поиска
         self.texts = (
             df["dialog"]
             .apply(self.extract_client_text)
@@ -204,10 +191,7 @@ class DialogDatabase:
 
         return len(self.texts)
 
-    # -----------------------------
-    # Поиск похожих обращений
-    # -----------------------------
-
+    #поиск похожих обращений
     def find_similar(self, query_text, top_k=5):
 
         if not self.texts or self.collection.count() == 0:

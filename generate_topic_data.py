@@ -88,8 +88,6 @@ topics = {
     ]
 }
 
-# --------------------------------------------------
-
 all_dialogs = []
 
 for topic, dialogs in topics.items():
@@ -103,11 +101,7 @@ for topic, dialogs in topics.items():
                 topic
             ])
 
-# --------------------------------------------------
-
 random.shuffle(all_dialogs)
-
-# --------------------------------------------------
 
 with open(
     "training_data_topics.csv",
